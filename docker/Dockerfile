@@ -5,12 +5,10 @@ ENV GO111MODULE=on \
 
 WORKDIR /builder
 COPY . .
-RUN go mod download && \
-    go build -ldflags " \
-    -s -w \
-    -X MediaWarp/internal/config.commitHash=$(git rev-parse HEAD) \
-    -X MediaWarp/internal/config.buildDate=$(date -u '+%Y-%m-%d %H:%M:%S')" \
-    -o MediaWarp
+RUN COMMIT_HASH=$(git rev-parse HEAD 2>/dev/null || echo "unknown") && \
+    BUILD_DATE=$(date -u '+%Y-%m-%dT%H:%M:%SZ') && \
+    go mod download && \
+    go build -ldflags "-s -w -X MediaWarp/internal/config.commitHash=${COMMIT_HASH} -X MediaWarp/internal/config.buildDate=${BUILD_DATE}" -o MediaWarp
 
 FROM alpine:latest
 COPY --from=builder /builder/MediaWarp /MediaWarp
