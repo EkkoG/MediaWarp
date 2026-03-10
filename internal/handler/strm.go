@@ -15,12 +15,14 @@ import (
 	"time"
 
 	"github.com/allegro/bigcache/v3"
+	"golang.org/x/sync/singleflight"
 )
 
 type StrmHandlerFunc func(content string, ua string) string
 
 func getHTTPStrmHandler() (StrmHandlerFunc, error) {
 	var cache *bigcache.BigCache
+	var finalURLGroup singleflight.Group
 	if config.Cache.Enable && config.Cache.HTTPStrmTTL > 0 && config.HTTPStrm.FinalURL {
 		var err error
 		cache, err = bigcache.New(context.Background(), bigcache.DefaultConfig(config.Cache.HTTPStrmTTL))
@@ -46,19 +48,33 @@ func getHTTPStrmHandler() (StrmHandlerFunc, error) {
 				}
 			}
 
-			logging.Debug("HTTPStrm 启用获取最终 URL，开始尝试获取最终 URL")
-			finalURL, err := getFinalURL(client, content, ua)
+			finalURLValue, err, _ := finalURLGroup.Do(content, func() (any, error) {
+				if cache != nil {
+					if cachedURL, err := cache.Get(content); err == nil {
+						logging.Infof("HTTPStrm 重定向至: %s (缓存)", string(cachedURL))
+						return string(cachedURL), nil
+					}
+				}
+
+				logging.Debug("HTTPStrm 启用获取最终 URL，开始尝试获取最终 URL")
+				finalURL, err := getFinalURL(client, content, ua)
+				if err != nil {
+					return content, err
+				}
+				if cache != nil {
+					if err := cache.Set(content, []byte(finalURL)); err != nil {
+						logging.Warning("缓存 HTTPStrm URL 失败: ", err)
+					} else {
+						logging.Debug("缓存 HTTPStrm URL 成功")
+					}
+				}
+				return finalURL, nil
+			})
+			finalURL := finalURLValue.(string)
 			if err != nil {
 				logging.Warning("获取最终 URL 失败，使用原始 URL: ", err)
 			} else {
 				logging.Info("HTTPStrm 重定向至: ", finalURL)
-			}
-			if cache != nil {
-				if err := cache.Set(content, []byte(finalURL)); err != nil {
-					logging.Warning("缓存 HTTPStrm URL 失败: ", err)
-				} else {
-					logging.Debug("缓存 HTTPStrm URL 成功")
-				}
 			}
 			return finalURL
 		} else {
