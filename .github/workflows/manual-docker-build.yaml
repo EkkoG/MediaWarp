@@ -1,0 +1,26 @@
+name: Manual Docker Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_version:
+        description: "Docker镜像版本号"
+        required: true
+        default: "dev"
+        type: string
+      is_latest:
+        description: "是否标记为latest版本"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker-build:
+    uses: ./.github/workflows/docker-builder.yaml
+    with:
+      APP_VERSION: ${{ inputs.app_version }}
+      IS_LATEST: ${{ inputs.is_latest }}
