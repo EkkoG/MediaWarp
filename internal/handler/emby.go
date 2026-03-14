@@ -47,6 +47,7 @@ func NewEmbyServerHandler(addr string, apiKey string) (*EmbyHandler, error) {
 		return nil, err
 	}
 	handler.proxy = httputil.NewSingleHostReverseProxy(target)
+	handler.proxy.Director = directorWithForwardedHeaders(handler.proxy.Director)
 
 	{ // 初始化路由规则
 		handler.routerRules = []RegexpRouteRule{

@@ -30,6 +30,7 @@ func NewFNTVHandler(addr string) (*FNTVHandler, error) {
 		return nil, err
 	}
 	hanler.proxy = httputil.NewSingleHostReverseProxy(target)
+	hanler.proxy.Director = directorWithForwardedHeaders(hanler.proxy.Director)
 
 	hanler.routerRules = []RegexpRouteRule{
 		{

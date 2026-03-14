@@ -40,6 +40,7 @@ func NewJellyfinHandler(addr string, apiKey string) (*JellyfinHandler, error) {
 		return nil, err
 	}
 	handler.proxy = httputil.NewSingleHostReverseProxy(target)
+	handler.proxy.Director = directorWithForwardedHeaders(handler.proxy.Director)
 
 	{ // 初始化路由规则
 		handler.routerRules = []RegexpRouteRule{

@@ -6,6 +6,7 @@ import (
 	"MediaWarp/internal/logging"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -18,6 +19,60 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/sjson"
 )
+
+// getClientIPFromRequest 从请求中解析真实客户端 IP（支持前级反代已设置的 X-Real-IP / X-Forwarded-For）
+func getClientIPFromRequest(req *http.Request) string {
+	if s := strings.TrimSpace(req.Header.Get("X-Real-IP")); s != "" {
+		return s
+	}
+	if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		if len(parts) > 0 {
+			return strings.TrimSpace(parts[0])
+		}
+	}
+	host, _, err := net.SplitHostPort(req.RemoteAddr)
+	if err != nil {
+		return req.RemoteAddr
+	}
+	return host
+}
+
+// immediateClientIP 返回直接与本机建立连接的客户端 IP（RemoteAddr 去掉端口）
+func immediateClientIP(req *http.Request) string {
+	host, _, err := net.SplitHostPort(req.RemoteAddr)
+	if err != nil {
+		return req.RemoteAddr
+	}
+	return host
+}
+
+// directorWithForwardedHeaders 包装原始 Director，在转发前注入反代相关 header，使上游得知真实客户端 IP 与协议
+func directorWithForwardedHeaders(base func(*http.Request)) func(*http.Request) {
+	return func(req *http.Request) {
+		base(req)
+		// X-Forwarded-For：按链追加“直接连接本机”的客户端 IP
+		direct := immediateClientIP(req)
+		if direct != "" {
+			if prior := req.Header.Get("X-Forwarded-For"); prior != "" {
+				req.Header.Set("X-Forwarded-For", prior+", "+direct)
+			} else {
+				req.Header.Set("X-Forwarded-For", direct)
+			}
+		}
+		// X-Real-IP：上游可直接使用的真实来源 IP
+		if real := getClientIPFromRequest(req); real != "" {
+			req.Header.Set("X-Real-IP", real)
+		}
+		if proto := req.Header.Get("X-Forwarded-Proto"); proto != "" {
+			// 前级反代已设置，保留
+		} else if req.TLS != nil {
+			req.Header.Set("X-Forwarded-Proto", "https")
+		} else {
+			req.Header.Set("X-Forwarded-Proto", "http")
+		}
+	}
+}
 
 // 响应修改创建器
 //
